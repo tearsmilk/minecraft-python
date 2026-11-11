@@ -218,7 +218,11 @@ class Bridge(Home):
         exe = self.home / "horizon-launcher"
         exe.write_text(
             "#!/bin/sh\n"
-            'if [ "$3" = list ]; then cat <<\'EOF\'\n' + listing + "\nEOF\n"
+            'if [ "$2" = sign-in ]; then\n'
+            "  echo 'To sign in, open https://microsoft.com/link in a browser and enter the code ABCD1234' >&2\n"
+            "  echo 'Signed in as Alex.'\n"
+            f'elif [ "$3" = select ]; then echo \'{{}}\'; echo "$4" > \'{self.home}/selected\'\n'
+            'elif [ "$3" = list ]; then cat <<\'EOF\'\n' + listing + "\nEOF\n"
             f'elif [ "$3" = session ] && [ "$4" = u1 ]; then\n'
             f"  printf '%s' '{{\"name\":\"Alex\",\"uuid\":\"u1\",\"access_token\":\"t\",\"user_type\":\"msa\"}}' > '{session}'\n"
             f'  echo \'{{"session_file": "{session}"}}\'\n'
@@ -237,6 +241,18 @@ class Bridge(Home):
         self.assertEqual(name, "Alex")
         self.assertEqual(json.loads(body)["access_token"], "t")
         self.assertFalse((self.home / "session-abc.json").exists())  # nothing with a token left on disk
+
+    def test_sign_in_from_the_command_line(self):
+        # macOS 11: Horizon.app's window needs macOS 12, its program's commands don't.
+        from honoka import horizon_bridge
+
+        exe = self.fake_launcher(owner=True)
+        seen = []
+        with mock.patch.dict(os.environ, {"HONOKA_HORIZON_LAUNCHER": str(exe)}):
+            name = horizon_bridge.sign_in(lambda link, code: seen.append((link, code)))
+        self.assertEqual(name, "Alex")
+        self.assertEqual(seen, [("https://microsoft.com/link", "ABCD1234")])
+        self.assertEqual((self.home / "selected").read_text().strip(), "Alex")
 
     def test_no_owner_no_session(self):
         from honoka import horizon_bridge

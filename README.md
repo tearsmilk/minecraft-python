@@ -58,7 +58,13 @@ Honoka спрашивает у лаунчера Horizon:
 - аккаунт: `horizon-launcher --json account list`. Нужен выбранный аккаунт и `owner: true`;
 - сессию для игры: `horizon-launcher --json account session <uuid>`. Файл сессии читается один раз и сразу удаляется.
 
-Проверка владения остаётся за Horizon. Лаунчер ищется в стандартной папке установки. Если он стоит в другом месте, путь задаётся через `HONOKA_HORIZON_LAUNCHER` или `horizon_launcher` в `settings.json`.
+Проверка владения остаётся за Horizon.
+
+**На macOS 11.** Окно лаунчера Horizon там не открывается: `Horizon.app` требует macOS 12 в `Info.plist`. Но программа внутри него (`Contents/MacOS/horizon-launcher`) собрана с минимумом macOS 10.12, проверено на `launcher@0.2.59`. Поэтому её консольные команды работают, а вход Honoka делает через них:
+1. Скачать dmg лаунчера Horizon и перетащить Horizon в «Программы». Открывать его не нужно.
+2. В Honoka нажать «Войти». Honoka запускает `horizon-launcher account sign-in`, показывает код Microsoft в своём окне и после входа выбирает этот аккаунт для игры.
+
+То же из терминала: `python3 -m honoka login`. Лаунчер ищется в стандартной папке установки. Если он стоит в другом месте, путь задаётся через `HONOKA_HORIZON_LAUNCHER` или `horizon_launcher` в `settings.json`.
 
 Как только в `config.py` появится свой client ID, Honoka сам переключится на свой вход.
 

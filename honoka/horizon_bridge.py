@@ -14,10 +14,14 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
+from typing import Callable
 
 from . import settings
 
@@ -68,6 +72,57 @@ def _run(*args: str) -> dict:
     except ValueError:
         message = (out.stderr or out.stdout).strip().splitlines()
         raise BridgeError(f"Лаунчер Horizon: {message[-1] if message else 'нет ответа'}") from None
+
+
+SIGN_IN_LINE = re.compile(r"open (\S+) in a browser and enter the code (\S+)")
+
+
+def sign_in(on_code: Callable[[str, str], None], cancelled: Callable[[], bool] = lambda: False) -> str:
+    """Signs a Microsoft account in in the Horizon launcher, from its command line.
+
+    For computers where its window doesn't open (macOS 11: Horizon.app asks for macOS 12, while the
+    program inside it is built for 10.12+ and its commands run). `on_code(link, code)` gets the
+    device code to show; returns the account's name once the launcher has signed it in.
+    """
+    exe = find_launcher()
+    if exe is None:
+        raise BridgeError("Лаунчер Horizon не найден. Установите его с playhorizon.dev (на macOS 11 тоже: "
+                          "перетащите Horizon в «Программы», открывать не нужно).")
+    proc = subprocess.Popen(
+        [str(exe), "account", "sign-in"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        creationflags=NO_WINDOW,
+    )
+    said: list[str] = []
+
+    def read_stderr():
+        for line in proc.stderr:
+            said.append(line.strip())
+            m = SIGN_IN_LINE.search(line)
+            if m:
+                on_code(m.group(1), m.group(2))
+
+    reader = threading.Thread(target=read_stderr, daemon=True)
+    reader.start()
+    while proc.poll() is None:
+        if cancelled():
+            proc.terminate()
+            raise BridgeError("Вход отменён.")
+        time.sleep(0.3)
+    reader.join(timeout=2)
+    out = proc.stdout.read() if proc.stdout else ""
+    m = re.search(r"Signed in as (.+)\.", out)
+    if proc.returncode != 0 or not m:
+        last = next((s for s in reversed(said) if s), "") or out.strip()
+        raise BridgeError(f"Лаунчер Horizon не смог войти: {last or proc.returncode}")
+    name = m.group(1).strip()
+    # The game plays as the account just signed in.
+    _run("account", "select", name)
+    return name
 
 
 def owner_account() -> dict | None:

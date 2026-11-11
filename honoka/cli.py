@@ -29,6 +29,11 @@ def main(argv: list[str] | None = None) -> int:
             from . import gui
 
             gui.main()
+        elif args.cmd == "login" and not config.msa_client_id():
+            name = horizon_bridge.sign_in(
+                lambda link, code: print(f"Откройте {link} и введите код {code} (вход через лаунчер Horizon)")
+            )
+            print(f"Готово: {name}")
         elif args.cmd == "login":
             code = account.start_device_code()
             print(f"Откройте {code.verification_uri} и введите код {code.user_code}")
@@ -57,7 +62,7 @@ def main(argv: list[str] | None = None) -> int:
             if message:
                 print(message, file=sys.stderr)
                 return 1
-    except account.AuthError as e:
+    except (account.AuthError, horizon_bridge.BridgeError) as e:
         print(f"\n{e}", file=sys.stderr)
         return 1
     except KeyboardInterrupt:

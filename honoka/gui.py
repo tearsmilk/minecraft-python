@@ -103,24 +103,34 @@ class App:
 
     def refresh_bridge(self) -> None:
         """Until Honoka's own Azure app: the account signed in in the Horizon launcher (horizon_bridge)."""
-        self.account_button.configure(text="Обновить")
         self.play_button.state(["!disabled"] if not self.busy else ["disabled"])
         if horizon_bridge.find_launcher() is None:
-            self.account_label.configure(text="Временный вход: установите лаунчер Horizon (playhorizon.dev) и войдите в нём")
+            self.account_button.configure(text="Обновить")
+            self.account_label.configure(
+                text="Временный вход: установите лаунчер Horizon (playhorizon.dev). На macOS 11 "
+                "просто перетащите его в «Программы», открывать не нужно."
+            )
             return
         self.account_label.configure(text="Спрашиваю лаунчер Horizon…")
 
         def ask():
             try:
                 owner = horizon_bridge.owner_account()
-                text = (
-                    f"Аккаунт (через лаунчер Horizon): {owner['name']}"
-                    if owner
-                    else "В лаунчере Horizon нет аккаунта с купленной игрой: войдите в нём"
-                )
             except horizon_bridge.BridgeError as e:
-                text = str(e)
-            self.events.put(("call", lambda: self.account_label.configure(text=text)))
+                owner, error = None, str(e)
+            else:
+                error = None
+
+            def show():
+                self.bridge_owner = owner
+                if owner:
+                    self.account_label.configure(text=f"Аккаунт (через лаунчер Horizon): {owner['name']}")
+                    self.account_button.configure(text="Обновить")
+                else:
+                    self.account_label.configure(text=error or "Войдите аккаунтом Microsoft, на котором куплена игра")
+                    self.account_button.configure(text="Войти")
+
+            self.events.put(("call", show))
 
         threading.Thread(target=ask, daemon=True).start()
 
@@ -164,7 +174,10 @@ class App:
 
     def on_account(self) -> None:
         if not config.msa_client_id():
-            self.refresh_bridge()
+            if getattr(self, "bridge_owner", None) or horizon_bridge.find_launcher() is None:
+                self.refresh_bridge()
+            else:
+                self.bridge_sign_in()
             return
         if account.signed_in():
             account.sign_out()
@@ -187,6 +200,26 @@ class App:
                 self.set_status(str(error), 0)
             else:
                 self.set_status(f"Готово, {profile['name']}! Жмите «Играть».", 1.0)
+
+        self.run(work, done)
+
+    def bridge_sign_in(self) -> None:
+        """Signs in in the Horizon launcher through its command line (its window needs macOS 12)."""
+        self.cancel_sign_in = False
+
+        def work(progress):
+            progress("Спрашиваю у лаунчера Horizon код входа…", None)
+
+            def on_code(link, code):
+                dc = account.DeviceCode(code, link, "", 0, 0)
+                self.events.put(("call", lambda: self.show_code(dc)))
+                progress("Ждём вход на странице Microsoft…", None)
+
+            return horizon_bridge.sign_in(on_code, cancelled=lambda: self.cancel_sign_in)
+
+        def done(name, error):
+            self.close_code()
+            self.set_status(str(error) if error else f"Готово, {name}! Жмите «Играть».", 0 if error else 1.0)
 
         self.run(work, done)
 
