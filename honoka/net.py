@@ -16,6 +16,56 @@ from .config import USER_AGENT
 TIMEOUT = 30
 
 
+def _mac_system_roots() -> str | None:
+    """The macOS system's root certificates as a PEM file, for a Python that has none of its own.
+
+    Python from python.org, and a Honoka.app built with it, look for certificates where its installer
+    puts them ("Install Certificates.command"), which a player's Mac doesn't have: every HTTPS request
+    would fail. macOS's own roots are exported once with `security`, into Honoka's folder.
+    """
+    import subprocess
+
+    from . import paths
+
+    pem = paths.home() / "system-roots.pem"
+    try:
+        if not pem.is_file() or pem.stat().st_size == 0:
+            out = subprocess.run(
+                ["security", "find-certificate", "-a", "-p",
+                 "/System/Library/Keychains/SystemRootCertificates.keychain"],
+                capture_output=True,
+                timeout=30,
+                check=True,
+            ).stdout
+            if b"BEGIN CERTIFICATE" not in out:
+                return None
+            pem.parent.mkdir(parents=True, exist_ok=True)
+            pem.write_bytes(out)
+        return str(pem)
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def _ssl_context():
+    import ssl
+    import sys
+
+    context = ssl.create_default_context()
+    if sys.platform == "darwin":
+        defaults = ssl.get_default_verify_paths()
+        has_own = (defaults.cafile and os.path.isfile(defaults.cafile)) or (
+            defaults.capath and os.path.isdir(defaults.capath) and os.listdir(defaults.capath)
+        )
+        if not has_own:
+            roots = _mac_system_roots()
+            if roots:
+                context.load_verify_locations(cafile=roots)
+    return context
+
+
+urllib.request.install_opener(urllib.request.build_opener(urllib.request.HTTPSHandler(context=_ssl_context())))
+
+
 class HttpError(Exception):
     def __init__(self, status: int, body: Any, url: str):
         super().__init__(f"{urllib.parse.urlsplit(url).netloc} answered {status}")
