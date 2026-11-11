@@ -1,86 +1,81 @@
 # Honoka
 
-Лаунчер сервера Hoka на основе [лаунчера Horizon](https://github.com/horizon-rust/horizon/tree/main/launcher) (Minecraft Java Edition 26.3, переписанный на Rust, MIT). Кнопка **«Играть»** сразу запускает игру на `mc.hoka.ink`.
+Лаунчер сервера Hoka на Python. Одна кнопка **«Играть»** запускает [Horizon](https://github.com/horizon-rust/horizon) (Minecraft: Java Edition 26.3, переписанный на Rust) сразу на `mc.hoka.ink`.
 
-В репозитории нет копии Horizon. Здесь лежат только наши изменения:
+Работает только на стандартной библиотеке Python 3.9+: окно на tkinter, сеть на urllib, подпись Ed25519 проверяется на чистом Python. Ставить ничего не нужно.
 
-| Путь | Что |
+```bash
+python -m honoka
+```
+
+Это открывает окно. Есть и консольные команды: `python -m honoka login`, `play`, `status`, `logout`.
+
+## Как это устроено
+
+Лаунчер работает по официальному [Launch API Horizon для сторонних лаунчеров](https://github.com/horizon-rust/horizon/blob/main/docs/api/launch-guide.md):
+
+1. **Вход** (`account.py`). Код входа Microsoft → Xbox Live → XSTS → сервисы Minecraft. Затем проверка, **что на аккаунте куплена Java Edition**: без этого игра не запускается. Это то же правило «только для владельца», что и у Horizon. Токены на Windows защищены через DPAPI, на других системах лежат в файле, доступном только пользователю.
+2. **Сборка Horizon** (`builds.py`). Берётся последний релиз `horizon-rust/horizon` для этой системы. `SHA256SUMS` проверяется по подписи Ed25519 ключом Horizon, архив — по SHA-256. После этого он распаковывается.
+3. **Файлы игры** (`mojang.py`) скачиваются только для владельца:
+   - версия, client jar, библиотеки и ресурсы 26.3 — с серверов Mojang, каждый файл сверяется с sha1. Если игра уже установлена у игрока, файлы копируются оттуда;
+   - server jar нужен для первой подготовки;
+   - Java 25 — та, что уже установлена у игрока, иначе Java от Mojang.
+4. **Подготовка** (`game.py`). `horizon-prepare --check`, а если ресурсы не готовы — `--prepare --complete --progress json`.
+5. **Запуск.** `horizon-client --quickPlayMultiplayer mc.hoka.ink --session-stdin`. Сессия передаётся через stdin, никогда в командной строке. Также задаётся `HORIZON_OLDER_SERVERS=1`: это адаптер Horizon для сервера 1.21.11.
+
+Файлы Mojang и Horizon не хранятся в этом репозитории и не раздаются. Всё скачивается на компьютер игрока под его аккаунт.
+
+Адрес сервера и ссылки лежат в `branding/links.json`, лаунчер читает их при старте. Если файл недоступен, используются значения из `honoka/config.py`.
+
+### Где лежат данные
+
+Windows `%APPDATA%\Honoka`, macOS `~/Library/Application Support/Honoka`, Linux `~/.local/share/honoka`. Переопределяется переменной `HONOKA_HOME`.
+
+## Системы
+
+| Система | Сборка Horizon |
 |---|---|
-| `upstream.json` | Коммит Horizon, на котором мы стоим |
-| `patches/0001-honoka-launcher.patch` | Наш патч поверх `launcher/` Horizon |
-| `branding/links.json` | Сайт, Discord и адрес сервера. Лаунчер читает его при старте, поэтому адрес можно сменить без релиза |
-| `scripts/honoka.py` | Скачать Horizon, наложить патч, собрать |
-| `LICENSE-HORIZON` | Лицензия Horizon (MIT). Её нужно сохранять в форке |
+| Windows 10/11 x64, ARM64 | `horizon-windows-*.zip` |
+| macOS 12+ (Apple Silicon, Intel) | `horizon-macos-*.zip` |
+| **macOS 11 Intel** | `horizon-macos-x64.zip` — см. ниже |
+| Linux x86_64 | `horizon-linux-x86_64.tar.gz` |
 
-## Что меняет патч
+**macOS 11 на Intel.**
+- Официально Horizon поддерживает macOS 12+. Но его Intel-программы (`horizon-client`, `horizon-prepare`) собраны с минимумом **macOS 10.12**: это видно в заголовке Mach-O `LC_VERSION_MIN_MACOSX` (проверено на Nightly от 11.11.2026). Поэтому на macOS 11 они запускаются.
+- Honoka работает на macOS 11 и показывает предупреждение. Системы старше 11 не поддерживаются.
+- Для подготовки ресурсов нужна Java 25. Лаунчер сначала ищет установленную у игрока (`/Library/Java/JavaVirtualMachines`, `JAVA_HOME` или `java_home` в `settings.json`) и только потом качает Java от Mojang. Если Java от Mojang на macOS 11 не запустится, поставьте Temurin 25 с adoptium.net.
+- Python для macOS 11 — установщик с python.org: в нём есть tkinter.
+- На реальном Mac с macOS 11 это **ещё не проверялось**.
 
-Всё Honoka-специфичное собрано в одном файле `launcher/src/honoka.rs`. Остальные правки короткие: ссылки из кода Horizon на этот файл.
+## Вход (обязательно для игры)
 
-- **«Играть» → сразу на сервер.** Если не выбран мир или друг, игра стартует с `--server mc.hoka.ink`. То же для Java-инстансов.
-- **Старые серверы.** Игра запускается с `HORIZON_OLDER_SERVERS=1`. Это встроенный адаптер Horizon для серверов 1.21.11 и ниже, а Ферма на 1.21.11. Адаптер выбирается по пингу сервера. Как он поведёт себя за Velocity, ещё **не проверено**.
-- **Название.** Окно, меню, папка установки и app id — Honoka / Honoka Launcher.
-- **Свои папки.** Данные лаунчера лежат в `honoka-launcher`, игры и миры — в `honoka`. Поэтому Honoka и Horizon можно поставить рядом, они не мешают друг другу.
-- **Ссылки и сервер** берутся из `branding/links.json` этого репозитория. Если файл недоступен (например, репозиторий приватный), используются встроенные значения из `honoka.rs`.
-- **Автообновление выключено.** Иначе лаунчер Horizon заменил бы наш собой. Включим, когда будут свои подписанные релизы.
+Нужно своё приложение Azure. Приложение Horizon брать нельзя: оно чужое и на экране согласия называется «Horizon».
 
-Что **не** меняется: сами сборки игры. Лаунчер, как и раньше, скачивает их из релизов Horizon и проверяет подписью Horizon. Файлы Mojang берутся из игры, установленной у игрока, или скачиваются у Mojang под его аккаунт. Мы их не храним и не раздаём.
+1. portal.azure.com → Microsoft Entra ID → App registrations → New registration. Имя `Honoka`, тип «Personal Microsoft accounts only». В Authentication включить **Allow public client flows**.
+2. Подать заявку Mojang на доступ к Minecraft API: https://aka.ms/mce-reviewappid. Пока её не одобрят, вход отвечает «приложение ещё не одобрено Mojang».
+3. Вписать client ID в `MSA_CLIENT_ID` в `honoka/config.py`. Для проверки можно вместо этого задать переменную `HONOKA_MSA_CLIENT_ID`.
 
-## Сборка
-
-Нужны git, Python 3.10+ и Rust (`rustup`, stable). На Windows ещё Visual Studio Build Tools (C++).
-
-```bash
-python scripts/honoka.py build
-```
-
-Готовый лаунчер появится в `dist/honoka-launcher` (на Windows `dist/honoka-launcher.exe`). Первая сборка долгая: тянется весь Horizon и его зависимости.
-
-Быстрая проверка без сборки бинарника:
+## Разработка
 
 ```bash
-python scripts/honoka.py check
+python -m unittest discover -s tests
 ```
 
-### Вход (обязательно для игры)
-
-Лаунчер входит в Microsoft-аккаунт через Azure-приложение. Его client ID берётся при сборке из переменной `HORIZON_MSA_CLIENT_ID`. Без неё лаунчер собирается, но войти и играть в нём нельзя.
-
-Приложение Horizon брать нельзя: это чужое приложение, и на экране согласия оно называется «Horizon». Нужно своё:
-
-1. portal.azure.com → Microsoft Entra ID → App registrations → New registration. Имя `Honoka`, тип «Personal Microsoft accounts only», Allow public client flows: **Yes**.
-2. Подать заявку Mojang на доступ к Minecraft API: https://aka.ms/mce-reviewappid. Пока её не одобрят, вход отвечает 403.
-3. Собрать с ID:
-
-```powershell
-$env:HORIZON_MSA_CLIENT_ID = "<client id>"; python scripts/honoka.py build
-```
-
-Подробности — в `docs/microsoft-account.md` у Horizon.
-
-## Обновление Horizon
-
-```bash
-python scripts/honoka.py bump <коммит Horizon>
-```
-
-```bash
-python scripts/honoka.py sync
-```
-
-Если патч не встал, поправьте файлы в `upstream/launcher/` руками и выполните:
-
-```bash
-python scripts/honoka.py refresh
-```
-
-Эта команда перепишет `patches/` по тому, что сейчас лежит в `upstream/`. Для своих правок порядок такой: меняете `upstream/launcher/`, затем `refresh`, затем коммит.
+Тесты проверяют:
+- Ed25519 на векторе RFC 8032 и на настоящей подписи Nightly Horizon (`tests/fixtures`);
+- выбор сборки под систему, включая Intel Mac;
+- распаковку архива (пути вида `..` отбрасываются);
+- правила библиотек Mojang и чтение версии Java;
+- определение macOS (Python, собранный со старым SDK, показывает macOS 11 как 10.16);
+- хранение аккаунта;
+- запуск: сервер в аргументах, сессия только в stdin.
 
 ## Дальше
 
-- Своя иконка и логотип (`packaging/icons/horizon.ico` в Horizon, `launcher/assets/`).
-- Переименовать бинарник и установщик (`horizon-launcher.exe`, `horizon-launcher-setup`).
-- Свои релизы с подписью и включённое автообновление.
-- Главная страница: новости и онлайн сервера, как на hoka.ink.
+- Client ID Azure и одобрение Mojang.
+- Сборка в один файл на каждую систему (PyInstaller) и иконка.
 - Проверить вход на тестовую копию Фермы (Velocity → Limbo → Ферма 1.21.11).
+- Проверить на настоящем Mac с macOS 11 Intel.
+- Новости и онлайн сервера в окне.
 
 Honoka — неофициальный проект, он не связан с Mojang, Microsoft и Horizon.
