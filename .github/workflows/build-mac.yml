@@ -1,0 +1,72 @@
+name: Build Honoka.app
+
+on:
+  push:
+    paths: ["honoka/**", "packaging/**", ".github/workflows/build-mac.yml"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  mac:
+    # An Intel Mac, so the smoke test runs the x86_64 half natively, as on an Intel Mac with macOS 11.
+    runs-on: macos-15-intel
+    timeout-minutes: 30
+    env:
+      # python.org's universal2 Python: built for macOS 10.13+, so the app runs on macOS 11.
+      # (actions/setup-python's macOS Pythons are built for the runner's own macOS.)
+      PY_VERSION: "3.12.10"
+      PY: /Library/Frameworks/Python.framework/Versions/3.12/bin/python3.12
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Python from python.org
+        run: |
+          curl -sSfLO "https://www.python.org/ftp/python/${PY_VERSION}/python-${PY_VERSION}-macos11.pkg"
+          sudo installer -pkg "python-${PY_VERSION}-macos11.pkg" -target /
+          "$PY" --version
+          "$PY" -c "import tkinter; print('Tk', tkinter.TkVersion)"
+
+      - name: Tests
+        run: |
+          "$PY" -m unittest discover -s tests -v
+
+      - name: PyInstaller
+        run: |
+          "$PY" -m venv .venv
+          .venv/bin/pip install --quiet "pyinstaller==6.11.1"
+
+      - name: Icon
+        run: |
+          "$PY" packaging/macos/make_icon.py build/Honoka.iconset
+          iconutil -c icns build/Honoka.iconset -o build/Honoka.icns
+
+      - name: Build Honoka.app
+        env:
+          HONOKA_ARCH: universal2
+        run: |
+          export HONOKA_ICON="$PWD/build/Honoka.icns"
+          export HONOKA_VERSION=$("$PY" -c "import honoka; print(honoka.__version__)")
+          .venv/bin/pyinstaller --noconfirm --clean --distpath dist --workpath build/pyinstaller packaging/macos/Honoka.spec
+          /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" dist/Honoka.app/Contents/Info.plist
+
+      - name: Every binary runs on macOS 11
+        run: |
+          "$PY" packaging/macos/check_min_os.py dist/Honoka.app 11.0
+
+      - name: Smoke test (x86_64)
+        run: |
+          out=$(HONOKA_SMOKE=1 HONOKA_HOME="$RUNNER_TEMP/honoka" arch -x86_64 dist/Honoka.app/Contents/MacOS/Honoka 2>&1)
+          echo "$out"
+          echo "$out" | grep -q "smoke ok"
+
+      - name: Zip
+        run: ditto -c -k --sequesterRsrc --keepParent dist/Honoka.app dist/Honoka-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Honoka-macos
+          path: dist/Honoka-macos.zip
+          retention-days: 30
