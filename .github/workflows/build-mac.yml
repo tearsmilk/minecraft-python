@@ -30,7 +30,8 @@ jobs:
           "$PY" -c "import tkinter; print('Tk', tkinter.TkVersion)"
 
       - name: Tests
-        run: "$PY" -m unittest discover -s tests -v
+        run: |
+          "$PY" -m unittest discover -s tests -v
 
       - name: PyInstaller
         run: |
@@ -52,7 +53,8 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :LSMinimumSystemVersion" dist/Honoka.app/Contents/Info.plist
 
       - name: Every binary runs on macOS 11
-        run: "$PY" packaging/macos/check_min_os.py dist/Honoka.app 11.0
+        run: |
+          "$PY" packaging/macos/check_min_os.py dist/Honoka.app 11.0
 
       - name: Smoke test (x86_64)
         run: |
