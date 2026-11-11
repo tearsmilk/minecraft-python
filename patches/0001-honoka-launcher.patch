@@ -1,0 +1,297 @@
+diff --git a/launcher/src/backend.rs b/launcher/src/backend.rs
+index 56bb7850b49c9e4c636b13e4440cae02cb82c55a..1fdd5f17b52fdc03cfd3a53fff28f34e93671f13 100644
+--- a/launcher/src/backend.rs
++++ b/launcher/src/backend.rs
+@@ -864,14 +864,11 @@ impl Default for Links {
+     /// What the launcher uses until (or unless) it can read links.json.
+     fn default() -> Self {
+         Self {
+-            discord: "https://discord.gg/playhorizon".into(),
+-            sponsor: "https://github.com/sponsors/ludovic111".into(),
+-            website: "https://playhorizon.dev".into(),
+-            official_server: crate::server_list::OFFICIAL_ADDRESS.into(),
+-            official_server_previous: crate::server_list::OFFICIAL_PREVIOUS
+-                .iter()
+-                .map(|a| a.to_string())
+-                .collect(),
++            discord: crate::honoka::DISCORD.into(),
++            sponsor: crate::honoka::SPONSOR.into(),
++            website: crate::honoka::WEBSITE.into(),
++            official_server: crate::honoka::SERVER_ADDRESS.into(),
++            official_server_previous: Vec::new(),
+         }
+     }
+ }
+@@ -910,8 +907,7 @@ impl Links {
+ 
+ /// The links from main, or the built-in ones when offline.
+ pub fn links() -> Links {
+-    let url = format!("https://raw.githubusercontent.com/{REPO}/main/launcher/links.json");
+-    get(&url)
++    get(crate::honoka::LINKS_URL)
+         .ok()
+         .and_then(|r| r.into_string().ok())
+         .map_or_else(Links::default, |text| Links::parse(&text))
+@@ -929,7 +925,7 @@ pub fn data_dir() -> PathBuf {
+     }
+     dirs::data_dir()
+         .unwrap_or_else(std::env::temp_dir)
+-        .join("horizon-launcher")
++        .join(crate::honoka::DATA_DIR)
+ }
+ 
+ /// A canonical path without Windows' verbatim prefix: `canonicalize` gives `\\?\C:\...` there,
+@@ -2660,7 +2656,7 @@ pub fn game_home() -> PathBuf {
+     }
+     dirs::data_dir()
+         .unwrap_or_else(std::env::temp_dir)
+-        .join("horizon")
++        .join(crate::honoka::GAME_DIR)
+ }
+ 
+ /// Whether No AI is on: every AI feature hidden and off (`horizon_platform::no_ai`, kept in the
+@@ -3547,7 +3543,9 @@ fn launcher_asset_running_from(appimage: bool) -> Option<&'static str> {
+ 
+ /// Development builds and `HORIZON_LAUNCHER_NO_SELF_UPDATE` never replace themselves.
+ pub fn self_update_allowed() -> bool {
+-    !cfg!(debug_assertions) && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()
++    crate::honoka::SELF_UPDATE
++        && !cfg!(debug_assertions)
++        && std::env::var_os("HORIZON_LAUNCHER_NO_SELF_UPDATE").is_none()
+ }
+ 
+ /// The version in `horizon-launcher --version`'s output (`horizon-launcher 0.1.5`).
+diff --git a/launcher/src/data_location.rs b/launcher/src/data_location.rs
+index bc082fd2c5c587f3038eb616f0a74cef63e84268..b643349daef7f50b92e5a6e8c62819afa2b4c095 100644
+--- a/launcher/src/data_location.rs
++++ b/launcher/src/data_location.rs
+@@ -36,7 +36,7 @@ pub fn bootstrap_path() -> Result<PathBuf> {
+         return pointer_path(Path::new(&path));
+     }
+     dirs::config_dir()
+-        .map(|p| p.join("horizon-launcher-location").join("location.json"))
++        .map(|p| p.join(crate::honoka::LOCATION_DIR).join("location.json"))
+         .ok_or_else(|| "Cannot locate the platform configuration folder for location.json".into())
+ }
+ 
+diff --git a/launcher/src/honoka.rs b/launcher/src/honoka.rs
+new file mode 100644
+index 0000000000000000000000000000000000000000..804cf4b992ec3515bfc32305448989e492f85657
+--- /dev/null
++++ b/launcher/src/honoka.rs
+@@ -0,0 +1,42 @@
++//! Honoka: everything this fork of the Horizon launcher changes is named here, so the patch over
++//! Horizon stays a handful of one-line call sites (see the Honoka repository's `patches/`).
++//!
++//! Honoka is the launcher of the Hoka server: one Play button that starts the game straight on
++//! the server. The game builds themselves are still Horizon's, downloaded from horizon-rust/horizon
++//! and checked against Horizon's signatures as before.
++
++/// The name shown in the window's title.
++pub const APP_NAME: &str = "Honoka";
++/// The launcher's name: the menu, the install folder and the shortcuts.
++pub const LAUNCHER_NAME: &str = "Honoka Launcher";
++/// The window's application id (Linux desktops group windows by it).
++pub const APP_ID: &str = "honoka-launcher";
++/// The launcher's own data folder, in the platform's data directory. Apart from Horizon's
++/// (`horizon-launcher`), so Honoka and Horizon can be installed side by side.
++pub const DATA_DIR: &str = "honoka-launcher";
++/// The game's folder (saves, options.txt, instances), apart from Horizon's (`horizon`).
++pub const GAME_DIR: &str = "honoka";
++/// Where the location pointer of a moved data folder is kept (`location.json`).
++pub const LOCATION_DIR: &str = "honoka-launcher-location";
++
++/// The server Play joins, and its name in the game's server list.
++pub const SERVER_NAME: &str = "Hoka";
++pub const SERVER_ADDRESS: &str = "mc.hoka.ink";
++
++/// The links (website, Discord, the server's address) read at start, so they change without a
++/// release. Until it is read, or when it can't be, the built-in ones below are used.
++pub const LINKS_URL: &str =
++    "https://raw.githubusercontent.com/tearsmilk/minecraft-python/main/branding/links.json";
++pub const WEBSITE: &str = "https://hoka.ink";
++/// Empty hides the button.
++pub const DISCORD: &str = "";
++pub const SPONSOR: &str = "";
++
++/// The server runs an older version than the game (1.21.11 behind Velocity): Horizon's adapter
++/// for older servers is on for every game Honoka starts. The server's status ping picks the
++/// adapter, and a 26.3 server is played as before.
++pub const OLDER_SERVERS_ENV: (&str, &str) = ("HORIZON_OLDER_SERVERS", "1");
++
++/// Self-update stays off until Honoka publishes its own signed launcher releases: Horizon's
++/// would replace this launcher with Horizon's.
++pub const SELF_UPDATE: bool = false;
+diff --git a/launcher/src/installer.rs b/launcher/src/installer.rs
+index 26a0f7dc8eb25571448ca9ba14508586a3de9b23..6305563ad3f204dc3e7b30e4d4cabe04d90b04ca 100644
+--- a/launcher/src/installer.rs
++++ b/launcher/src/installer.rs
+@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
+ use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
+ use winreg::RegKey;
+ 
+-pub const APP_NAME: &str = "Horizon Launcher";
++pub const APP_NAME: &str = crate::honoka::LAUNCHER_NAME;
+ const BINARY: &str = "horizon-launcher.exe";
+ const PUBLISHER: &str = "Horizon";
+ const ABOUT_URL: &str = "https://playhorizon.dev";
+@@ -496,7 +496,7 @@ pub fn uninstall(remove_data: bool, progress: impl Fn(Step, f32)) -> Result<Vec<
+         // Only the folder the launcher itself names: `HORIZON_LAUNCHER_HOME` may point anywhere.
+         if data
+             .file_name()
+-            .is_some_and(|n| n.eq_ignore_ascii_case("horizon-launcher"))
++            .is_some_and(|n| n.eq_ignore_ascii_case(crate::honoka::DATA_DIR))
+         {
+             remove_all(&data, &mut left);
+             // A profile whose name isn't ASCII keeps the build folder in %ProgramData%
+diff --git a/launcher/src/lib.rs b/launcher/src/lib.rs
+index 0eb15c6afbed0ce243b4d1dee65b948e193e9b1f..4f7f78617dc1998694c330e08fe6526572b613aa 100644
+--- a/launcher/src/lib.rs
++++ b/launcher/src/lib.rs
+@@ -1,5 +1,6 @@
+ //! The launcher's core, shared by the GUI, the CLI and the MCP server.
+ pub mod account;
++pub mod honoka;
+ pub mod agents;
+ pub mod backend;
+ pub mod browser;
+diff --git a/launcher/src/main.rs b/launcher/src/main.rs
+index 08618b1260f6994f5b177772231c6a4990188504..531146c2a07e2b157d6daf83adb00fc8936298ce 100644
+--- a/launcher/src/main.rs
++++ b/launcher/src/main.rs
+@@ -1280,14 +1280,24 @@ impl Launcher {
+                             account::discard_unread_sessions();
+                             continue;
+                         }
+-                        if let Some(code) = self.joining.take() {
+-                            if let Err(e) = backend::join_friend(&mut cmd, &code) {
++                        let joining = self.joining.take();
++                        if let Some(code) = &joining {
++                            if let Err(e) = backend::join_friend(&mut cmd, code) {
+                                 self.client_error = Some(e);
+                             }
+                         }
+-                        if let Some((flag, value)) = self.quick_play.take() {
+-                            cmd.arg(flag).arg(value);
++                        match self.quick_play.take() {
++                            Some((flag, value)) => {
++                                cmd.arg(flag).arg(value);
++                            }
++                            // Honoka: Play goes straight to the server.
++                            None if joining.is_none() && !self.links.official_server.is_empty() => {
++                                cmd.arg("--server").arg(&self.links.official_server);
++                            }
++                            None => {}
+                         }
++                        let (older, on) = horizon_launcher::honoka::OLDER_SERVERS_ENV;
++                        cmd.env(older, on);
+                         backend::append_game_args(&mut cmd);
+                         // Last, around every argument: the instance's pre-launch command,
+                         // wrapper and variables.
+@@ -1810,11 +1820,11 @@ impl Launcher {
+             // Mojang's game: no Horizon version or preparation, only no game already running.
+             // It joins a server; a friend's code and opening a world are Horizon's.
+             self.joining = None;
+-            let server = self
+-                .quick_play
+-                .take()
+-                .filter(|(flag, _)| *flag == "--server")
+-                .map(|(_, ip)| ip);
++            let server = match self.quick_play.take() {
++                Some((flag, ip)) => (flag == "--server").then_some(ip),
++                // Honoka: Play goes straight to the server.
++                None => Some(self.links.official_server.clone()).filter(|ip| !ip.is_empty()),
++            };
+             if self.client.is_some() || self.starting_client.is_some() {
+                 return;
+             }
+@@ -5669,8 +5679,11 @@ fn page_after_startup(page: Page, data_folder_failed: bool) -> Page {
+ fn menus() -> Vec<Menu> {
+     vec![
+         Menu {
+-            name: "Horizon Launcher".into(),
+-            items: vec![MenuItem::action("Quit Horizon Launcher", Quit)],
++            name: horizon_launcher::honoka::LAUNCHER_NAME.into(),
++            items: vec![MenuItem::action(
++                format!("Quit {}", horizon_launcher::honoka::LAUNCHER_NAME),
++                Quit,
++            )],
+             disabled: false,
+         },
+         Menu {
+@@ -5772,7 +5785,7 @@ fn main() {
+                     titlebar: Some(titlebar::options()),
+                     #[cfg(target_os = "linux")]
+                     window_decorations: Some(gpui::WindowDecorations::Client),
+-                    app_id: Some("horizon-launcher".into()),
++                    app_id: Some(horizon_launcher::honoka::APP_ID.into()),
+                     // GPUI draws a window without focus at most every 33 ms to save energy. A
+                     // benchmark's window often starts without it (KDE keeps focus from windows
+                     // a background process opens), and it measures drawing, not that limit.
+@@ -5963,7 +5976,7 @@ mod tests {
+     #[test]
+     fn the_app_menu_has_quit() {
+         let menus = super::menus();
+-        assert_eq!(menus[0].name, "Horizon Launcher");
++        assert_eq!(menus[0].name, "Honoka Launcher");
+         assert!(matches!(
+             &menus[0].items[0],
+             gpui::MenuItem::Action { name, .. } if name == "Quit Horizon Launcher"
+diff --git a/launcher/src/server_list.rs b/launcher/src/server_list.rs
+index ea38ddea7d6800b96b08d6f3f78b91c4009d7fdc..85d971616937665efac424ae54db6d68c9b5fbba 100644
+--- a/launcher/src/server_list.rs
++++ b/launcher/src/server_list.rs
+@@ -12,11 +12,11 @@ use std::path::Path;
+ const FILE: &str = "servers.dat";
+ /// Horizon's official survival server, named as the game lists it. Its address comes from
+ /// `launcher/links.json` on main (`backend::Links`), so a move to a new host needs no release.
+-pub const OFFICIAL_NAME: &str = "Horizon Official";
++pub const OFFICIAL_NAME: &str = crate::honoka::SERVER_NAME;
+ /// The official server's address until links.json is read, and when it can't be.
+-pub const OFFICIAL_ADDRESS: &str = horizon_telemetry::server_status::OFFICIAL_ADDRESS;
++pub const OFFICIAL_ADDRESS: &str = crate::honoka::SERVER_ADDRESS;
+ /// Addresses the official server had before: lists that still hold one are moved to the current one.
+-pub const OFFICIAL_PREVIOUS: &[&str] = horizon_telemetry::server_status::OFFICIAL_PREVIOUS;
++pub const OFFICIAL_PREVIOUS: &[&str] = &[];
+ /// Beside servers.dat once the official server was offered, so a player who removes it never
+ /// gets it back: the address offered, so a new one moves the list once. The game writes the same file.
+ const OFFICIAL_MARKER: &str = "horizon_official_server.txt";
+diff --git a/launcher/src/setup_page.rs b/launcher/src/setup_page.rs
+index 605c42adcf2c51708fe91e608fbb7fb40d4f1b2b..14f4dfb8dc59b0c2dcb18c2a1bd3acfc5f4e1a89 100644
+--- a/launcher/src/setup_page.rs
++++ b/launcher/src/setup_page.rs
+@@ -57,7 +57,7 @@ pub fn open(mode: Mode, cx: &mut App) {
+             window_bounds: Some(WindowBounds::Windowed(bounds)),
+             window_min_size: Some(size(px(760.), px(520.))),
+             titlebar: Some(titlebar::options()),
+-            app_id: Some("horizon-launcher".into()),
++            app_id: Some(crate::honoka::APP_ID.into()),
+             ..Default::default()
+         },
+         |window, cx| cx.new(|cx| Setup::new(mode, window, cx)),
+diff --git a/launcher/src/shortcut/tests.rs b/launcher/src/shortcut/tests.rs
+index 87f270f71fd03be6ae1ea9234069fc36b598178b..f2fe88f25b701c92d7874fd0cb8e4bfc283a1ee6 100644
+--- a/launcher/src/shortcut/tests.rs
++++ b/launcher/src/shortcut/tests.rs
+@@ -134,7 +134,7 @@ fn a_windows_shortcut_is_a_shell_link_to_the_launcher() {
+ #[test]
+ fn the_shell_written_link_keeps_the_instance_it_plays() {
+     let root = scratch("plays");
+-    let exe = root.join("Horizon Launcher").join("horizon-launcher.exe");
++    let exe = root.join("Honoka Launcher").join("horizon-launcher.exe");
+     fs::create_dir_all(exe.parent().unwrap()).unwrap();
+     fs::write(&exe, b"x").unwrap();
+     let link = root.join("Hardcore (Horizon).lnk");
+diff --git a/launcher/src/titlebar.rs b/launcher/src/titlebar.rs
+index ede5b77928f8a0a3a9dee06238c0b148bcc20a81..a80681542ad326169c86cd159b327f3929d8e9d0 100644
+--- a/launcher/src/titlebar.rs
++++ b/launcher/src/titlebar.rs
+@@ -23,7 +23,7 @@ pub fn draws_brand(window: &Window) -> bool {
+ 
+ pub fn options() -> TitlebarOptions {
+     TitlebarOptions {
+-        title: Some("Horizon".into()),
++        title: Some(crate::honoka::APP_NAME.into()),
+         // macOS and Windows place the GPUI content under the native title bar. Linux uses
+         // client-side decorations below, so its title bar is transparent by construction.
+         appears_transparent: cfg!(any(target_os = "macos", target_os = "windows")),

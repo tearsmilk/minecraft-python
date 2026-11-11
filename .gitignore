@@ -1,0 +1,5 @@
+# Horizon's source at the pinned commit, with our patches on it (scripts/honoka.py sync).
+/upstream/
+# Built launcher.
+/dist/
+__pycache__/
