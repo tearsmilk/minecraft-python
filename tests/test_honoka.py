@@ -204,5 +204,59 @@ class Launch(Home):
         self.assertIsNone(game.exit_message(0))
 
 
+@unittest.skipIf(sys.platform == "win32", "uses a shell script as the Horizon launcher")
+class Bridge(Home):
+    """Signing in through the Horizon launcher, with a stand-in for its CLI."""
+
+    def fake_launcher(self, owner: bool) -> Path:
+        session = self.home / "session-abc.json"
+        listing = json.dumps({
+            "accounts": [{"name": "Alex", "uuid": "u1", "selected": True}],
+            "sign_in_configured": True,
+            "owner": owner,
+        })
+        exe = self.home / "horizon-launcher"
+        exe.write_text(
+            "#!/bin/sh\n"
+            'if [ "$3" = list ]; then cat <<\'EOF\'\n' + listing + "\nEOF\n"
+            f'elif [ "$3" = session ] && [ "$4" = u1 ]; then\n'
+            f"  printf '%s' '{{\"name\":\"Alex\",\"uuid\":\"u1\",\"access_token\":\"t\",\"user_type\":\"msa\"}}' > '{session}'\n"
+            f'  echo \'{{"session_file": "{session}"}}\'\n'
+            "fi\n"
+        )
+        exe.chmod(0o755)
+        return exe
+
+    def test_owner_session_is_read_once(self):
+        from honoka import horizon_bridge
+
+        exe = self.fake_launcher(owner=True)
+        with mock.patch.dict(os.environ, {"HONOKA_HORIZON_LAUNCHER": str(exe)}):
+            self.assertEqual(horizon_bridge.owner_account(), {"name": "Alex", "uuid": "u1"})
+            name, body = horizon_bridge.session_json()
+        self.assertEqual(name, "Alex")
+        self.assertEqual(json.loads(body)["access_token"], "t")
+        self.assertFalse((self.home / "session-abc.json").exists())  # nothing with a token left on disk
+
+    def test_no_owner_no_session(self):
+        from honoka import horizon_bridge
+
+        exe = self.fake_launcher(owner=False)
+        with mock.patch.dict(os.environ, {"HONOKA_HORIZON_LAUNCHER": str(exe)}):
+            self.assertIsNone(horizon_bridge.owner_account())
+            with self.assertRaises(horizon_bridge.BridgeError):
+                horizon_bridge.session_json()
+
+    def test_no_launcher(self):
+        from honoka import horizon_bridge
+
+        with mock.patch.dict(os.environ, {"HONOKA_HORIZON_LAUNCHER": str(self.home / "missing")}), \
+                mock.patch("shutil.which", return_value=None), \
+                mock.patch.object(horizon_bridge.sys, "platform", "linux"):
+            self.assertIsNone(horizon_bridge.find_launcher())
+            with self.assertRaises(horizon_bridge.BridgeError):
+                horizon_bridge.owner_account()
+
+
 if __name__ == "__main__":
     unittest.main()

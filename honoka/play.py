@@ -5,7 +5,7 @@ from __future__ import annotations
 import subprocess
 from typing import Callable
 
-from . import account, builds, config, game, mojang, net, settings, system
+from . import account, builds, config, game, horizon_bridge, mojang, net, settings, system
 
 Progress = Callable[[str, "float | None"], None]
 
@@ -58,9 +58,17 @@ def play(progress: Progress) -> subprocess.Popen:
     if not system.supported():
         raise RuntimeError(system.warnings()[0])
     progress("Проверяю аккаунт…", None)
-    session = account.session()  # the owner gate: nothing below runs for an account without the game
+    # The owner gate: nothing below runs for an account without the game.
+    if config.msa_client_id():
+        account.session()
+        session = lambda: account.session().game_json()  # noqa: E731
+    else:
+        # Until Honoka's Azure app is approved: the account signed in in the Horizon launcher.
+        horizon_bridge.session_json()
+        session = lambda: horizon_bridge.session_json()[1]  # noqa: E731
     version = ensure_build(progress)
     ensure_prepared(version, progress)
     server = server_address()
     progress(f"Запускаю игру на {server}…", None)
-    return game.start(version, session.game_json(), server)
+    # A fresh session right before the start: preparing can take longer than a session file lives.
+    return game.start(version, session(), server)

@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import sys
 
-from . import __version__, account, game, play, system
+from . import __version__, account, config, game, horizon_bridge, play, system
 
 
 def _progress(text: str, fraction: float | None = None) -> None:
@@ -38,8 +38,16 @@ def main(argv: list[str] | None = None) -> int:
             account.sign_out()
             print("Вы вышли.")
         elif args.cmd == "status":
-            profile = account.signed_in()
-            print("Аккаунт:", profile["name"] if profile and profile.get("owns") else "нет")
+            if config.msa_client_id():
+                profile = account.signed_in()
+                print("Аккаунт:", profile["name"] if profile and profile.get("owns") else "нет")
+            else:
+                print("Вход: временно через лаунчер Horizon (своего client ID Azure ещё нет)")
+                try:
+                    owner = horizon_bridge.owner_account()
+                    print("Аккаунт:", owner["name"] if owner else "нет аккаунта с купленной игрой")
+                except horizon_bridge.BridgeError as e:
+                    print("Аккаунт:", e)
             for warning in system.warnings():
                 print("Внимание:", warning)
         elif args.cmd == "play":

@@ -8,7 +8,7 @@ import tkinter as tk
 import webbrowser
 from tkinter import ttk
 
-from . import __version__, account, config, game, play, system
+from . import __version__, account, config, game, horizon_bridge, play, system
 
 BG = "#16161d"
 CARD = "#22222c"
@@ -86,6 +86,9 @@ class App:
         self.bar["value"] = 0
 
     def refresh_account(self) -> None:
+        if not config.msa_client_id():
+            self.refresh_bridge()
+            return
         profile = account.signed_in()
         if profile and profile.get("owns"):
             self.account_label.configure(text=f"Аккаунт: {profile['name']}")
@@ -97,6 +100,29 @@ class App:
             self.account_label.configure(text="Войдите с аккаунтом Microsoft, на котором куплена игра")
             self.account_button.configure(text="Войти")
         self.play_button.state(["!disabled"] if not self.busy else ["disabled"])
+
+    def refresh_bridge(self) -> None:
+        """Until Honoka's own Azure app: the account signed in in the Horizon launcher (horizon_bridge)."""
+        self.account_button.configure(text="Обновить")
+        self.play_button.state(["!disabled"] if not self.busy else ["disabled"])
+        if horizon_bridge.find_launcher() is None:
+            self.account_label.configure(text="Временный вход: установите лаунчер Horizon (playhorizon.dev) и войдите в нём")
+            return
+        self.account_label.configure(text="Спрашиваю лаунчер Horizon…")
+
+        def ask():
+            try:
+                owner = horizon_bridge.owner_account()
+                text = (
+                    f"Аккаунт (через лаунчер Horizon): {owner['name']}"
+                    if owner
+                    else "В лаунчере Horizon нет аккаунта с купленной игрой: войдите в нём"
+                )
+            except horizon_bridge.BridgeError as e:
+                text = str(e)
+            self.events.put(("call", lambda: self.account_label.configure(text=text)))
+
+        threading.Thread(target=ask, daemon=True).start()
 
     def run(self, work, done) -> None:
         """Runs `work(progress)` on a thread; `done(result, error)` back on the window's thread."""
@@ -137,6 +163,9 @@ class App:
     # --- sign-in ---------------------------------------------------------------------------------------
 
     def on_account(self) -> None:
+        if not config.msa_client_id():
+            self.refresh_bridge()
+            return
         if account.signed_in():
             account.sign_out()
             self.set_status("Вы вышли из аккаунта.", 0)
@@ -191,7 +220,7 @@ class App:
     # --- play ------------------------------------------------------------------------------------------
 
     def on_play(self) -> None:
-        if not account.signed_in():
+        if config.msa_client_id() and not account.signed_in():
             self.on_account()
             return
 

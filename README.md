@@ -47,6 +47,23 @@ Windows `%APPDATA%\Honoka`, macOS `~/Library/Application Support/Honoka`, Linux 
 - Python для macOS 11 — установщик с python.org: в нём есть tkinter.
 - На реальном Mac с macOS 11 это **ещё не проверялось**.
 
+## Временный вход через лаунчер Horizon (пока ждём Azure)
+
+Пока в `config.py` нет своего client ID, Honoka входит через **официальный лаунчер Horizon**: у него уже есть одобренное приложение Microsoft.
+
+1. Поставить лаунчер Horizon с playhorizon.dev и войти в нём аккаунтом Microsoft, на котором куплена Java Edition.
+2. Запустить Honoka и нажать «Играть».
+
+Honoka спрашивает у лаунчера Horizon:
+- аккаунт: `horizon-launcher --json account list`. Нужен выбранный аккаунт и `owner: true`;
+- сессию для игры: `horizon-launcher --json account session <uuid>`. Файл сессии читается один раз и сразу удаляется.
+
+Проверка владения остаётся за Horizon. Лаунчер ищется в стандартной папке установки. Если он стоит в другом месте, путь задаётся через `HONOKA_HORIZON_LAUNCHER` или `horizon_launcher` в `settings.json`.
+
+Как только в `config.py` появится свой client ID, Honoka сам переключится на свой вход.
+
+Режима совсем без входа нет и не будет: Horizon можно запускать только владельцам игры. Игроки без лицензии заходят на сервер как раньше: Java-клиент + Fabric + мод Hoka.
+
 ## Вход (обязательно для игры)
 
 Нужно своё приложение Azure. Приложение Horizon брать нельзя: оно чужое и на экране согласия называется «Horizon».
