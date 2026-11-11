@@ -257,7 +257,7 @@ index ea38ddea7d6800b96b08d6f3f78b91c4009d7fdc..85d971616937665efac424ae54db6d68
  /// gets it back: the address offered, so a new one moves the list once. The game writes the same file.
  const OFFICIAL_MARKER: &str = "horizon_official_server.txt";
 diff --git a/launcher/src/setup_page.rs b/launcher/src/setup_page.rs
-index 605c42adcf2c51708fe91e608fbb7fb40d4f1b2b..14f4dfb8dc59b0c2dcb18c2a1bd3acfc5f4e1a89 100644
+index 605c42adcf2c51708fe91e608fbb7fb40d4f1b2b..ee7a76bb5d9deb87bfb9d8ef8eaec9d80d58b75f 100644
 --- a/launcher/src/setup_page.rs
 +++ b/launcher/src/setup_page.rs
 @@ -57,7 +57,7 @@ pub fn open(mode: Mode, cx: &mut App) {
@@ -265,7 +265,7 @@ index 605c42adcf2c51708fe91e608fbb7fb40d4f1b2b..14f4dfb8dc59b0c2dcb18c2a1bd3acfc
              window_min_size: Some(size(px(760.), px(520.))),
              titlebar: Some(titlebar::options()),
 -            app_id: Some("horizon-launcher".into()),
-+            app_id: Some(crate::honoka::APP_ID.into()),
++            app_id: Some(horizon_launcher::honoka::APP_ID.into()),
              ..Default::default()
          },
          |window, cx| cx.new(|cx| Setup::new(mode, window, cx)),
@@ -283,7 +283,7 @@ index 87f270f71fd03be6ae1ea9234069fc36b598178b..f2fe88f25b701c92d7874fd0cb8e4bfc
      fs::write(&exe, b"x").unwrap();
      let link = root.join("Hardcore (Horizon).lnk");
 diff --git a/launcher/src/titlebar.rs b/launcher/src/titlebar.rs
-index ede5b77928f8a0a3a9dee06238c0b148bcc20a81..a80681542ad326169c86cd159b327f3929d8e9d0 100644
+index ede5b77928f8a0a3a9dee06238c0b148bcc20a81..6e889f93370b917333e886838c465de8e94b3e7b 100644
 --- a/launcher/src/titlebar.rs
 +++ b/launcher/src/titlebar.rs
 @@ -23,7 +23,7 @@ pub fn draws_brand(window: &Window) -> bool {
@@ -291,7 +291,7 @@ index ede5b77928f8a0a3a9dee06238c0b148bcc20a81..a80681542ad326169c86cd159b327f39
  pub fn options() -> TitlebarOptions {
      TitlebarOptions {
 -        title: Some("Horizon".into()),
-+        title: Some(crate::honoka::APP_NAME.into()),
++        title: Some(horizon_launcher::honoka::APP_NAME.into()),
          // macOS and Windows place the GPUI content under the native title bar. Linux uses
          // client-side decorations below, so its title bar is transparent by construction.
          appears_transparent: cfg!(any(target_os = "macos", target_os = "windows")),
