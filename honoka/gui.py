@@ -45,7 +45,7 @@ class App:
 
         card = tk.Frame(root, bg=CARD, padx=14, pady=10)
         card.pack(fill="x", padx=24, pady=(18, 0))
-        self.account_label = tk.Label(card, text="", fg=INK, bg=CARD, anchor="w", justify="left")
+        self.account_label = tk.Label(card, text="", fg=INK, bg=CARD, anchor="w", justify="left", wraplength=380)
         self.account_label.pack(side="left", fill="x", expand=True)
         self.account_button = ttk.Button(card, style="Small.TButton", command=self.on_account)
         self.account_button.pack(side="right")
@@ -105,11 +105,10 @@ class App:
         """Until Honoka's own Azure app: the account signed in in the Horizon launcher (horizon_bridge)."""
         self.play_button.state(["!disabled"] if not self.busy else ["disabled"])
         if horizon_bridge.find_launcher() is None:
-            self.account_button.configure(text="Обновить")
-            self.account_label.configure(
-                text="Временный вход: установите лаунчер Horizon (playhorizon.dev). На macOS 11 "
-                "просто перетащите его в «Программы», открывать не нужно."
-            )
+            # Nothing to install by hand: «Войти» downloads it (horizon_bridge.install_launcher).
+            self.bridge_owner = None
+            self.account_button.configure(text="Войти")
+            self.account_label.configure(text="Войдите аккаунтом Microsoft, на котором куплена игра")
             return
         self.account_label.configure(text="Спрашиваю лаунчер Horizon…")
 
@@ -174,7 +173,7 @@ class App:
 
     def on_account(self) -> None:
         if not config.msa_client_id():
-            if getattr(self, "bridge_owner", None) or horizon_bridge.find_launcher() is None:
+            if getattr(self, "bridge_owner", None):
                 self.refresh_bridge()
             else:
                 self.bridge_sign_in()
@@ -215,7 +214,7 @@ class App:
                 self.events.put(("call", lambda: self.show_code(dc)))
                 progress("Ждём вход на странице Microsoft…", None)
 
-            return horizon_bridge.sign_in(on_code, cancelled=lambda: self.cancel_sign_in)
+            return horizon_bridge.sign_in(on_code, cancelled=lambda: self.cancel_sign_in, progress=progress)
 
         def done(name, error):
             self.close_code()

@@ -31,7 +31,8 @@ def main(argv: list[str] | None = None) -> int:
             gui.main()
         elif args.cmd == "login" and not config.msa_client_id():
             name = horizon_bridge.sign_in(
-                lambda link, code: print(f"Откройте {link} и введите код {code} (вход через лаунчер Horizon)")
+                lambda link, code: print(f"\nОткройте {link} и введите код {code} (вход через лаунчер Horizon)"),
+                progress=_progress,
             )
             print(f"Готово: {name}")
         elif args.cmd == "login":

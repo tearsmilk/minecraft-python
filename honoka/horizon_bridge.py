@@ -23,7 +23,7 @@ import time
 from pathlib import Path
 from typing import Callable
 
-from . import settings
+from . import paths, settings
 
 TIMEOUT = 60
 NO_WINDOW = 0x08000000 if sys.platform == "win32" else 0
@@ -33,9 +33,107 @@ class BridgeError(Exception):
     pass
 
 
+# The launcher release used when GitHub's API can't be asked for the newest (its files are still checked).
+KNOWN_LAUNCHER = "launcher@0.2.59"
+
+
+def launcher_asset() -> str:
+    import platform as _platform
+
+    machine = _platform.machine().lower()
+    arm = machine in ("arm64", "aarch64")
+    if sys.platform == "win32":
+        return "horizon-launcher-windows-arm64.zip" if arm else "horizon-launcher-windows-x64.zip"
+    if sys.platform == "darwin":
+        return "horizon-launcher-macos-arm64.zip" if arm else "horizon-launcher-macos-x64.zip"
+    return "horizon-launcher-linux-x86_64.tar.gz"
+
+
+def _installed_dir() -> Path:
+    return paths.home() / "horizon-launcher"
+
+
+def _program_in(folder: Path) -> Path | None:
+    name = "horizon-launcher.exe" if sys.platform == "win32" else "horizon-launcher"
+    mac = folder / "Horizon.app" / "Contents" / "MacOS" / "horizon-launcher"
+    if mac.is_file():
+        return mac
+    for found in sorted(folder.rglob(name)) if folder.is_dir() else []:
+        if found.is_file():
+            return found
+    return None
+
+
+def install_launcher(progress: Callable[[str, "float | None"], None]) -> Path:
+    """Downloads the Horizon launcher into Honoka's folder, checked against Horizon's signature.
+
+    Only its command line is used (sign-in and the game's session), so it works where its window
+    doesn't open (macOS 11): nothing has to be installed or opened by hand.
+    """
+    from . import builds, net
+
+    from . import system
+
+    tag = KNOWN_LAUNCHER
+    mac = system.macos_version()
+    # macOS 11: the version whose program was checked to run there (built for macOS 10.12+); a newer
+    # one could ask for a newer macOS.
+    newest = mac is None or mac >= (12, 0)
+    try:
+        for r in net.get_json(f"{builds.API}/releases?per_page=50") if newest else []:
+            if r["tag_name"].startswith("launcher@") and not r.get("draft") and not r.get("prerelease"):
+                tag = r["tag_name"]
+                break
+    except (OSError, ValueError, net.HttpError):
+        pass
+    dest = _installed_dir() / tag
+    found = _program_in(dest)
+    if found:
+        return found
+    asset = launcher_asset()
+    progress("Проверяю подпись лаунчера Horizon…", None)
+    digest = builds.signed_digest(builds.Release(tag, tag, builds.SIGNATURE), asset)
+    archive = _installed_dir() / f".{asset}"
+    net.download(
+        f"{builds.DOWNLOAD}/{tag}/{asset}",
+        archive,
+        sha256=digest,
+        progress=lambda done, total: progress("Скачиваю лаунчер Horizon…", done / total if total else None),
+    )
+    tmp = dest.with_name(dest.name + ".unpacking")
+    shutil.rmtree(tmp, ignore_errors=True)
+    builds.unpack(archive, tmp, strip_top=False)
+    shutil.rmtree(dest, ignore_errors=True)
+    tmp.rename(dest)
+    archive.unlink(missing_ok=True)
+    found = _program_in(dest)
+    if found is None:
+        raise BridgeError("В архиве лаунчера Horizon нет его программы.")
+    if sys.platform != "win32":
+        found.chmod(0o755)
+    # Older versions are no longer needed.
+    for old in _installed_dir().iterdir():
+        if old.is_dir() and old.name != tag and not old.name.startswith("."):
+            shutil.rmtree(old, ignore_errors=True)
+    return found
+
+
+def ensure_launcher(progress: Callable[[str, "float | None"], None]) -> Path:
+    return find_launcher() or install_launcher(progress)
+
+
 def find_launcher() -> Path | None:
-    """The Horizon launcher's program: settings.json's horizon_launcher, HONOKA_HORIZON_LAUNCHER, its install folders, PATH."""
+    """The Horizon launcher's program: settings.json's horizon_launcher, HONOKA_HORIZON_LAUNCHER, the one Honoka
+    downloaded, the player's own install, PATH."""
     candidates = [settings.load().get("horizon_launcher"), os.environ.get("HONOKA_HORIZON_LAUNCHER")]
+    if candidates[1]:
+        # Set explicitly (tests, scripts): only that one.
+        return Path(candidates[1]) if Path(candidates[1]).is_file() else None
+    if _installed_dir().is_dir():
+        for folder in sorted(_installed_dir().iterdir(), reverse=True):
+            found = _program_in(folder) if folder.is_dir() and not folder.name.startswith(".") else None
+            if found:
+                candidates.append(str(found))
     if sys.platform == "win32":
         local = os.environ.get("LOCALAPPDATA")
         if local:
@@ -54,7 +152,7 @@ def find_launcher() -> Path | None:
 def _run(*args: str) -> dict:
     exe = find_launcher()
     if exe is None:
-        raise BridgeError("Лаунчер Horizon не найден. Установите его с playhorizon.dev и войдите в нём.")
+        raise BridgeError("Войдите аккаунтом Microsoft, на котором куплена игра (кнопка «Войти»).")
     try:
         out = subprocess.run(
             [str(exe), "--json", *args],
@@ -77,17 +175,18 @@ def _run(*args: str) -> dict:
 SIGN_IN_LINE = re.compile(r"open (\S+) in a browser and enter the code (\S+)")
 
 
-def sign_in(on_code: Callable[[str, str], None], cancelled: Callable[[], bool] = lambda: False) -> str:
+def sign_in(
+    on_code: Callable[[str, str], None],
+    cancelled: Callable[[], bool] = lambda: False,
+    progress: Callable[[str, "float | None"], None] | None = None,
+) -> str:
     """Signs a Microsoft account in in the Horizon launcher, from its command line.
 
     For computers where its window doesn't open (macOS 11: Horizon.app asks for macOS 12, while the
     program inside it is built for 10.12+ and its commands run). `on_code(link, code)` gets the
     device code to show; returns the account's name once the launcher has signed it in.
     """
-    exe = find_launcher()
-    if exe is None:
-        raise BridgeError("Лаунчер Horizon не найден. Установите его с playhorizon.dev (на macOS 11 тоже: "
-                          "перетащите Horizon в «Программы», открывать не нужно).")
+    exe = ensure_launcher(progress or (lambda text, fraction=None: None))
     proc = subprocess.Popen(
         [str(exe), "account", "sign-in"],
         stdout=subprocess.PIPE,

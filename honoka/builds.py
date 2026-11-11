@@ -142,20 +142,21 @@ def program(version: str, name: str) -> Path:
     return build_dir(version) / f"{name}{exe}"
 
 
-def _safe_target(root: Path, member: str) -> Path | None:
-    """Where `member` unpacks under `root`, without the archive's top folder; None for a path that leaves it."""
-    parts = PurePosixPath(member.replace("\\", "/")).parts[1:]
+def _safe_target(root: Path, member: str, strip_top: bool = True) -> Path | None:
+    """Where `member` unpacks under `root` (without the archive's top folder when `strip_top`); None for a
+    path that leaves it."""
+    parts = PurePosixPath(member.replace("\\", "/")).parts[1 if strip_top else 0:]
     if not parts or any(p in ("..", "") for p in parts) or PurePosixPath(member).is_absolute():
         return None
     return root.joinpath(*parts)
 
 
-def unpack(archive: Path, dest: Path) -> None:
-    """Unpacks a build into `dest`, dropping its top folder (horizon-<platform>/)."""
+def unpack(archive: Path, dest: Path, strip_top: bool = True) -> None:
+    """Unpacks a build into `dest`, dropping its top folder (horizon-<platform>/) when `strip_top`."""
     if archive.name.endswith(".tar.gz"):
         with tarfile.open(archive) as tar:
             for m in tar.getmembers():
-                target = _safe_target(dest, m.name)
+                target = _safe_target(dest, m.name, strip_top)
                 if target is None or not (m.isfile() or m.isdir()):
                     continue
                 if m.isdir():
@@ -169,7 +170,7 @@ def unpack(archive: Path, dest: Path) -> None:
     else:
         with zipfile.ZipFile(archive) as z:
             for info in z.infolist():
-                target = _safe_target(dest, info.filename)
+                target = _safe_target(dest, info.filename, strip_top)
                 if target is None:
                     continue
                 if info.is_dir():
